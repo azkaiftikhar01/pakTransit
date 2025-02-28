@@ -21,6 +21,7 @@ const dbQuery = async (query, values) => {
 };
 
 const dbOperations = async (operation, table, data, conditions = {}) => {
+  console.log(data)
   try {
     if (!operation || !table) {
       throw new Error("Invalid operation or table name");
@@ -78,12 +79,53 @@ const dbOperations = async (operation, table, data, conditions = {}) => {
       case "update": {
         const keys = Object.keys(data);
         if (keys.length === 0) throw new Error("No data provided for update");
-        values = Object.values(data);
-        const setClause = keys.map((key, i) => `${key} = $${i + 1}`).join(", ");
-        query = `UPDATE ${table} SET ${setClause} ${conditionClause} RETURNING *`;
-        values = [...values, ...conditionValues];
-        break;
-      }
+    
+        const columnTypes = await getColumnTypes(table);
+        const geomColumns = columnTypes
+            .filter(col => col.udt_name === "geography")
+            .map(col => col.column_name);
+    
+        // Separate non-geom columns
+        const nonGeomKeys = keys.filter(
+            key => !geomColumns.some(geomCol => key.toLowerCase().includes(geomCol))
+        );
+    
+        let values = nonGeomKeys.map(key => data[key]);
+        let setClauseParts = nonGeomKeys.map((key, i) => `${key} = $${i + 1}`);
+    
+        let geomValues = [];
+        if (geomColumns.length > 0) {
+            geomColumns.forEach((geomCol) => {
+                const longitudeKey = keys.find(key => key.toLowerCase() === `${geomCol}_longitude`);
+                const latitudeKey = keys.find(key => key.toLowerCase() === `${geomCol}_latitude`);
+    
+                if (!longitudeKey || !latitudeKey) {
+                    throw new Error(`Missing longitude or latitude for geography column: ${geomCol}`);
+                }
+    
+                // Use correct parameter indexing
+                setClauseParts.push(`${geomCol} = ST_SetSRID(ST_MakePoint($${values.length + 1}, $${values.length + 2}), 4326)`);
+                geomValues.push(data[longitudeKey], data[latitudeKey]);
+            });
+        }
+    
+        // Construct full SET clause
+        const fullSetClause = setClauseParts.join(", ");
+    
+        // Ensure ID is last parameter
+        values = [...values, ...geomValues, conditions.id];
+    
+        // Explicitly cast id to INTEGER
+        query = `UPDATE ${table} SET ${fullSetClause} WHERE id = $${values.length}::INTEGER RETURNING *`;
+        console.log(query)
+        console.log(values)
+        result=await dbQuery(query, values);
+        console.log(result)
+        return result;
+    }
+    
+    
+    
 
       case "delete": {
         query = `DELETE FROM ${table} ${conditionClause} RETURNING *`;

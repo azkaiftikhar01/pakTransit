@@ -30,9 +30,9 @@ exports.createBusStation = async (req, res) => {
 
 exports.updateBusStation = async (req, res) => {
   try {
-    const { id } = req.params;
+    let { id } = req.params;
     const { name, location } = req.body;
-
+    id=parseInt(id)
     if (!id) {
       return res.status(400).json({ error: "Station ID is required" });
     }
@@ -42,9 +42,10 @@ exports.updateBusStation = async (req, res) => {
     if (location && location.longitude && location.latitude) {
       updateData.location_longitude = location.longitude;
       updateData.location_latitude = location.latitude;
+
     }
 
-    const updatedStation = await dbOperations("update", "bus_stations", updateData, { id });
+    const updatedStation = await dbOperations("update", "bus_stations", updateData,{id} );
 
     if (!updatedStation) {
       return res.status(404).json({ error: "Bus station not found" });
